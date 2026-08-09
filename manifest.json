@@ -4,8 +4,8 @@
   "description": "Personal 5×5 strength training log",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#0B0C0F",
-  "theme_color": "#0B0C0F",
+  "background_color": "#F3F1EC",
+  "theme_color": "#F3F1EC",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

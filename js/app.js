@@ -79,6 +79,23 @@ tabbar.addEventListener('click', (e) => {
 
 // ---------- Home ----------
 
+function weekStrip() {
+  const now = new Date();
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const trained = new Set(state.history.map((h) => new Date(h.date).toDateString()));
+  let out = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
+    const isToday = d.toDateString() === now.toDateString();
+    const done = trained.has(d.toDateString());
+    out += `<div class="day ${done ? 'done' : ''} ${isToday ? 'today' : ''}">
+      <div class="dot">${done ? icons.check : ''}</div>${labels[i]}
+    </div>`;
+  }
+  return `<div class="week">${out}</div>`;
+}
+
 function renderHome() {
   stopTick();
   const type = state.next;
@@ -91,6 +108,7 @@ function renderHome() {
   }).join('');
 
   const tonnage = totalTonnage(state);
+  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
   const onboard = !state.onboardDismissed && state.history.length === 0 ? `
     <div class="notice">${icons.info}
       <div>Weights start deliberately light so you can groove technique — they climb every workout. Adjust starting weights in <b>Settings</b> if needed.</div>
@@ -98,13 +116,21 @@ function renderHome() {
     </div>` : '';
 
   view.innerHTML = `
-    <div class="eyebrow">Next up</div>
-    <h1>Workout ${type}</h1>
-    <div class="sub">${state.history.length ? `Last trained ${fmtDate(state.history[state.history.length - 1].date)}` : 'Your first workout — let’s go.'}</div>
+    <div class="eyebrow">${today}</div>
+    <h1>Time to train</h1>
+    <div class="sub">${state.history.length ? `Last session ${fmtDate(state.history[state.history.length - 1].date)}` : 'Your first workout — let’s go.'}</div>
+    ${weekStrip()}
     ${onboard}
     <div class="card hero-card">
+      <div class="hero-top">
+        <div class="monogram ${type.toLowerCase()}">${type}</div>
+        <div>
+          <div class="t">Workout ${type}</div>
+          <div class="s">${WORKOUTS[type].length} exercises · ~45 min</div>
+        </div>
+      </div>
       <div class="plan">${rows}</div>
-      <button class="btn btn-primary" data-action="start">${icons.barbell} Start workout ${type}</button>
+      <button class="btn btn-primary" data-action="start">Start workout ${icons.arrowRight}</button>
     </div>
     <div class="stat-strip">
       <div class="stat"><div class="v num">${state.history.length}</div><div class="l">Workouts</div></div>
@@ -117,10 +143,12 @@ function renderHome() {
 
 function renderWorkout() {
   const { type, sets, startedAt } = state.active;
+  const allSets = Object.values(sets).flat();
+  const doneSets = allSets.filter((v) => v !== null).length;
   const cards = WORKOUTS[type].map((id) => {
     const ex = EXERCISES[id], p = state.prog[id];
     const flags = [];
-    if (p.fails === 2) flags.push('<span class="flag warn">3rd try — deload if missed</span>');
+    if (p.fails === 2) flags.push('<span class="flag danger">3rd try — deload if missed</span>');
     else if (p.fails === 1) flags.push('<span class="flag warn">2nd attempt at this weight</span>');
     const circles = sets[id].map((v, i) => {
       const cls = v === null ? '' : v >= ex.reps ? 'full' : v === 0 ? 'zero' : 'partial';
@@ -138,6 +166,10 @@ function renderWorkout() {
     <div class="workout-head">
       <button class="back" data-action="back">${icons.chevronLeft} Workout ${type}</button>
       <span class="clock" id="wclock"></span>
+    </div>
+    <div class="wprogress">
+      <div class="track"><div class="fill" style="width:${(doneSets / allSets.length) * 100}%"></div></div>
+      <div class="label">${doneSets} of ${allSets.length} sets logged</div>
     </div>
     ${cards}
     <div class="finish-wrap">
@@ -205,7 +237,13 @@ function renderHistory() {
       </div>`;
     }).join('');
     return `<div class="card h-item">
-      <div class="h-top"><span class="h-title">Workout ${h.type}</span><span class="h-date">${fmtDate(h.date)} · ${h.durationMin} min</span></div>
+      <div class="h-top">
+        <div class="monogram ${h.type.toLowerCase()}">${h.type}</div>
+        <div>
+          <div class="h-title">Workout ${h.type}</div>
+          <div class="h-date">${fmtDate(h.date)} · ${h.durationMin} min</div>
+        </div>
+      </div>
       <div class="h-rows">${rows}</div>
     </div>`;
   }).join('');
@@ -261,25 +299,34 @@ function buildChart(series) {
   const step = Math.max(2.5, Math.ceil((hi - lo) / 4 / 2.5) * 2.5);
   let grid = '';
   for (let g = Math.ceil(lo / step) * step; g <= hi; g += step) {
-    grid += `<line x1="${padL}" y1="${y(g)}" x2="${W - padR}" y2="${y(g)}" stroke="#23262E" stroke-width="1"/>
-      <text x="${padL - 8}" y="${y(g) + 4}" text-anchor="end" font-size="11" fill="#616875" font-family="Inter,sans-serif">${fmtKg(g)}</text>`;
+    grid += `<line x1="${padL}" y1="${y(g)}" x2="${W - padR}" y2="${y(g)}" stroke="#EBE9E3" stroke-width="1"/>
+      <text x="${padL - 8}" y="${y(g) + 4}" text-anchor="end" font-size="11" fill="#9EA1A8" font-family="'Plus Jakarta Sans',sans-serif" font-weight="600">${fmtKg(g)}</text>`;
   }
 
-  const line = series.map((s, i) => `${x(i).toFixed(1)},${y(s.weight).toFixed(1)}`).join(' ');
+  const pts = series.map((s, i) => `${x(i).toFixed(1)},${y(s.weight).toFixed(1)}`);
+  const line = pts.join(' ');
+  const area = `${padL},${H - padB} ${line} ${x(series.length - 1).toFixed(1)},${H - padB}`;
   const dots = series.map((s, i) =>
-    `<circle cx="${x(i).toFixed(1)}" cy="${y(s.weight).toFixed(1)}" r="4" fill="${s.success ? '#C9F73A' : '#0B0C0F'}" stroke="${s.success ? '#0B0C0F' : '#F87171'}" stroke-width="2" data-pt="${i}"/>`).join('');
+    `<circle cx="${x(i).toFixed(1)}" cy="${y(s.weight).toFixed(1)}" r="4" fill="${s.success ? '#17181A' : '#FFFFFF'}" stroke="${s.success ? '#FFFFFF' : '#D6453D'}" stroke-width="2" data-pt="${i}"/>`).join('');
 
   // sparse x labels: first, middle, last
   const li = [0, Math.floor((series.length - 1) / 2), series.length - 1];
   const xlabels = [...new Set(li)].map((i) =>
-    `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#616875" font-family="Inter,sans-serif">${new Date(series[i].date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</text>`).join('');
+    `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#9EA1A8" font-family="'Plus Jakarta Sans',sans-serif" font-weight="600">${new Date(series[i].date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</text>`).join('');
 
   const last = series[series.length - 1];
-  const endLabel = `<text x="${x(series.length - 1) - 2}" y="${y(last.weight) - 12}" text-anchor="end" font-size="12" font-weight="700" fill="#EDEEF2" font-family="Inter,sans-serif">${fmtKg(last.weight)} kg</text>`;
+  const endLabel = `<text x="${x(series.length - 1) - 2}" y="${y(last.weight) - 12}" text-anchor="end" font-size="12" font-weight="800" fill="#17181A" font-family="'Plus Jakarta Sans',sans-serif">${fmtKg(last.weight)} kg</text>`;
 
   return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" id="chart">
+    <defs>
+      <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#3A6B3F" stop-opacity="0.16"/>
+        <stop offset="100%" stop-color="#3A6B3F" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
     ${grid}
-    <polyline points="${line}" fill="none" stroke="#C9F73A" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <polygon points="${area}" fill="url(#areaFill)"/>
+    <polyline points="${line}" fill="none" stroke="#17181A" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}${endLabel}${xlabels}
   </svg>`;
 }
