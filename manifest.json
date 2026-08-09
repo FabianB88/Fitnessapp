@@ -1,0 +1,12 @@
+{
+  "name": "FIVE — 5×5 Log",
+  "short_name": "FIVE",
+  "description": "Personal 5×5 strength training log",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0B0C0F",
+  "theme_color": "#0B0C0F",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
