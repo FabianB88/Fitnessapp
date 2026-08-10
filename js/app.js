@@ -3,7 +3,7 @@ import {
   EXERCISES, WORKOUTS, MUSCLES, loadState, persist, startWorkout, tapSet,
   finishWorkout, discardWorkout, totalTonnage, workoutsThisWeek, exerciseSeries,
   detectMuscles, addFreeEntry, deleteFreeEntry, muscleLastTrained,
-  setsPerMuscle, weeklyVolume, tonnageSince, mondayOf,
+  setsPerMuscle, weeklyVolume, tonnageSince,
 } from './store.js';
 import { getToken, setToken, fetchRemote, pushRemote } from './github.js';
 
@@ -444,8 +444,8 @@ function renderHistory() {
 // ---------- Progress ----------
 
 function renderFullBody() {
-  const weekStart = mondayOf(Date.now());
-  const counts = setsPerMuscle(state, weekStart);
+  const cutoff = Date.now() - 7 * 86400000;
+  const counts = setsPerMuscle(state, cutoff);
   const max = Math.max(6, ...Object.values(counts));
   const under = MUSCLES.filter((m) => (counts[m.id] || 0) === 0);
 
@@ -470,29 +470,31 @@ function renderFullBody() {
     </div>`;
   }).join('');
 
-  const tw = tonnageSince(state, weekStart);
-  const totalSets = weeks[weeks.length - 1].sets;
-  const daysTrained = new Set([...state.history, ...state.freeLog].filter((x) => x.date >= weekStart).map((x) => new Date(x.date).toDateString())).size;
+  const tw = tonnageSince(state, cutoff);
+  let totalSets = 0;
+  for (const e of state.freeLog) if (e.date >= cutoff) totalSets += e.sets || 1;
+  for (const h of state.history) if (h.date >= cutoff) for (const ex of h.exercises) totalSets += ex.sets.length;
+  const daysTrained = new Set([...state.history, ...state.freeLog].filter((x) => x.date >= cutoff).map((x) => new Date(x.date).toDateString())).size;
 
   return `
     ${under.length && under.length < MUSCLES.length ? `
       <div class="under-card">${icons.circleAlert}
-        <div><b>Not trained this week:</b> ${under.map((m) => m.label).join(', ')}</div>
+        <div><b>Not trained in the last 7 days:</b> ${under.map((m) => m.label).join(', ')}</div>
       </div>` : ''}
     <div class="card">
       <div class="chart-title">Sets per muscle</div>
-      <div class="chart-sub">This week, from Monday — free log + 5×5</div>
+      <div class="chart-sub">Last 7 days — free log + 5×5, assists count half</div>
       <div class="vol-list">${bars}</div>
     </div>
     <div class="card">
       <div class="chart-title">Weekly volume</div>
-      <div class="chart-sub">Total sets per week — steady or climbing is what you want</div>
+      <div class="chart-sub">Total sets per calendar week — steady or climbing is what you want</div>
       <div class="wk-chart">${wBars}</div>
     </div>
     <div class="stat-strip">
-      <div class="stat"><div class="v num">${totalSets}</div><div class="l">Sets this week</div></div>
-      <div class="stat"><div class="v num">${daysTrained}</div><div class="l">Days trained</div></div>
-      <div class="stat"><div class="v num">${tw >= 1000 ? (tw / 1000).toFixed(1) : Math.round(tw)}<small> ${tw >= 1000 ? 't' : 'kg'}</small></div><div class="l">Lifted this week</div></div>
+      <div class="stat"><div class="v num">${totalSets}</div><div class="l">Sets · 7 days</div></div>
+      <div class="stat"><div class="v num">${daysTrained}</div><div class="l">Days trained · 7d</div></div>
+      <div class="stat"><div class="v num">${tw >= 1000 ? (tw / 1000).toFixed(1) : Math.round(tw)}<small> ${tw >= 1000 ? 't' : 'kg'}</small></div><div class="l">Lifted · 7 days</div></div>
     </div>`;
 }
 
