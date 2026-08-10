@@ -3,12 +3,13 @@ import {
   EXERCISES, WORKOUTS, MUSCLES, loadState, persist, startWorkout, tapSet,
   finishWorkout, discardWorkout, totalTonnage, workoutsThisWeek, exerciseSeries,
   detectMuscles, addFreeEntry, deleteFreeEntry, muscleLastTrained,
+  setsPerMuscle, weeklyVolume, tonnageSince, mondayOf,
 } from './store.js';
 import { getToken, setToken, fetchRemote, pushRemote } from './github.js';
 
 const state = loadState();
 let tab = 'home';
-let progressEx = 'box-squat';
+let progressEx = 'fullbody';
 let rest = null;        // { since, hard }
 let tickHandle = null;
 let syncState = { status: getToken() ? 'idle' : 'off', msg: '' };
@@ -227,10 +228,23 @@ function updateRestClock() {
 
 const draft = { name: '', overrides: {} };
 
+// Involvement level per muscle: 'p' (primary), 's' (secondary/half), or false.
+function levelFor(id, auto) {
+  if (draft.overrides[id] !== undefined) return draft.overrides[id];
+  if (auto.p.includes(id)) return 'p';
+  if (auto.s.includes(id)) return 's';
+  return false;
+}
+
 function effectiveMuscles() {
-  const auto = new Set(detectMuscles(draft.name));
-  return MUSCLES.map((m) => m.id).filter((id) =>
-    draft.overrides[id] !== undefined ? draft.overrides[id] : auto.has(id));
+  const auto = detectMuscles(draft.name);
+  const eff = { p: [], s: [] };
+  for (const m of MUSCLES) {
+    const lvl = levelFor(m.id, auto);
+    if (lvl === 'p') eff.p.push(m.id);
+    else if (lvl === 's') eff.s.push(m.id);
+  }
+  return eff;
 }
 
 function todayISO() {
@@ -255,16 +269,55 @@ function dayLabel(ts) {
 }
 
 function chipRow() {
-  const eff = new Set(effectiveMuscles());
-  return MUSCLES.map((m) =>
-    `<button class="m-chip ${eff.has(m.id) ? 'on' : ''}" data-muscle="${m.id}">${m.label}</button>`).join('');
+  const auto = detectMuscles(draft.name);
+  return MUSCLES.map((m) => {
+    const lvl = levelFor(m.id, auto);
+    const cls = lvl === 'p' ? 'on' : lvl === 's' ? 'half' : '';
+    return `<button class="m-chip ${cls}" data-muscle="${m.id}">${m.label}${lvl === 's' ? '<span class="half-mark">½</span>' : ''}</button>`;
+  }).join('');
+}
+
+// Most recent entry per exercise name — powers autocomplete and prefill.
+function knownExercises() {
+  const map = new Map();
+  for (const e of state.freeLog) {
+    const key = e.name.trim().toLowerCase();
+    if (!map.has(key) || map.get(key).date < e.date) map.set(key, e);
+  }
+  return map;
+}
+
+function lastTimeFor(name) {
+  return knownExercises().get(name.trim().toLowerCase()) || null;
+}
+
+function suggestRow() {
+  const q = draft.name.trim().toLowerCase();
+  if (!q) return '';
+  const matches = [...knownExercises().values()]
+    .filter((e) => e.name.toLowerCase().includes(q) && e.name.toLowerCase() !== q)
+    .sort((a, b) => b.date - a.date)
+    .slice(0, 4);
+  return matches.map((e) =>
+    `<button class="suggest" data-suggest="${esc(e.name)}">${esc(e.name)}</button>`).join('');
+}
+
+function lastTimeHint(name) {
+  const last = lastTimeFor(name);
+  if (!last) return '';
+  const meta = [last.sets && last.reps ? `${last.sets}×${last.reps}` : '', last.kg ? `${last.kg} kg` : ''].filter(Boolean).join(' · ');
+  return meta ? `Last time: ${meta} (${agoLabel(last.date)})` : `Logged before (${agoLabel(last.date)})`;
 }
 
 function detectHint() {
   const auto = detectMuscles(draft.name);
   if (!draft.name.trim()) return 'Type an exercise — trained muscles get selected automatically.';
-  if (auto.length) return `Recognized: ${auto.map((id) => MUSCLES.find((m) => m.id === id).label).join(', ')}`;
-  return 'Not recognized — tap the muscles it trains.';
+  if (auto.p.length) {
+    const label = (id) => MUSCLES.find((m) => m.id === id).label;
+    const sec = auto.s.length ? ` · assisting: ${auto.s.map(label).join(', ')}` : '';
+    return `Recognized: ${auto.p.map(label).join(', ')}${sec}`;
+  }
+  return 'Not recognized — tap muscles: once = trained, twice = half, again = off.';
 }
 
 function renderLog() {
@@ -291,7 +344,7 @@ function renderLog() {
         <div class="entry-row">
           <div class="info">
             <div class="n">${esc(e.name)}</div>
-            <div class="tags">${e.muscles.map((id) => `<span class="tag">${MUSCLES.find((m) => m.id === id)?.label || id}</span>`).join('')}</div>
+            <div class="tags">${e.muscles.map((id) => `<span class="tag">${MUSCLES.find((m) => m.id === id)?.label || id}</span>`).join('')}${(e.secondary || []).map((id) => `<span class="tag half">${MUSCLES.find((m) => m.id === id)?.label || id} ½</span>`).join('')}</div>
           </div>
           <span class="meta">${[e.sets && e.reps ? `${e.sets}×${e.reps}` : '', e.kg ? `${e.kg} kg` : ''].filter(Boolean).join(' · ')}</span>
           <button class="del" data-del-entry="${e.id}">${icons.trash}</button>
@@ -305,7 +358,9 @@ function renderLog() {
 
     <div class="card mt16">
       <input type="text" id="log-name" placeholder="e.g. Biceps curl" value="${esc(draft.name)}" autocomplete="off" enterkeyhint="done">
+      <div class="suggest-row" id="suggest-row">${suggestRow()}</div>
       <div class="detect-hint ${detectMuscles(draft.name).length ? 'found' : ''}" id="detect-hint">${detectHint()}</div>
+      <div class="last-hint" id="last-hint">${lastTimeHint(draft.name)}</div>
       <div class="muscle-grid" id="chip-row">${chipRow()}</div>
       <div class="log-nums">
         <input type="number" id="log-sets" placeholder="Sets" inputmode="numeric" min="0">
@@ -358,10 +413,73 @@ function renderHistory() {
 
 // ---------- Progress ----------
 
+function renderFullBody() {
+  const weekStart = mondayOf(Date.now());
+  const counts = setsPerMuscle(state, weekStart);
+  const max = Math.max(6, ...Object.values(counts));
+  const under = MUSCLES.filter((m) => (counts[m.id] || 0) === 0);
+
+  const bars = MUSCLES.map((m) => {
+    const n = counts[m.id] || 0;
+    const cls = n === 0 ? 'zero' : n < 6 ? 'low' : 'good';
+    return `<div class="vol-row">
+      <span class="vol-label">${m.label}</span>
+      <div class="vol-track"><div class="vol-fill ${cls}" style="width:${Math.max(n / max * 100, n ? 6 : 0)}%"></div></div>
+      <span class="vol-n num">${fmtKg(n)}</span>
+    </div>`;
+  }).join('');
+
+  const weeks = weeklyVolume(state, 8);
+  const wMax = Math.max(1, ...weeks.map((w) => w.sets));
+  const wBars = weeks.map((w, i) => {
+    const label = new Date(w.start).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return `<div class="wk-col">
+      <span class="wk-n num">${w.sets || ''}</span>
+      <div class="wk-bar ${i === weeks.length - 1 ? 'now' : ''}" style="height:${Math.max((w.sets / wMax) * 100, w.sets ? 6 : 2)}%"></div>
+      <span class="wk-label">${i === weeks.length - 1 ? 'now' : label}</span>
+    </div>`;
+  }).join('');
+
+  const tw = tonnageSince(state, weekStart);
+  const totalSets = weeks[weeks.length - 1].sets;
+  const daysTrained = new Set([...state.history, ...state.freeLog].filter((x) => x.date >= weekStart).map((x) => new Date(x.date).toDateString())).size;
+
+  return `
+    ${under.length && under.length < MUSCLES.length ? `
+      <div class="under-card">${icons.circleAlert}
+        <div><b>Not trained this week:</b> ${under.map((m) => m.label).join(', ')}</div>
+      </div>` : ''}
+    <div class="card">
+      <div class="chart-title">Sets per muscle</div>
+      <div class="chart-sub">This week, from Monday — free log + 5×5</div>
+      <div class="vol-list">${bars}</div>
+    </div>
+    <div class="card">
+      <div class="chart-title">Weekly volume</div>
+      <div class="chart-sub">Total sets per week — steady or climbing is what you want</div>
+      <div class="wk-chart">${wBars}</div>
+    </div>
+    <div class="stat-strip">
+      <div class="stat"><div class="v num">${totalSets}</div><div class="l">Sets this week</div></div>
+      <div class="stat"><div class="v num">${daysTrained}</div><div class="l">Days trained</div></div>
+      <div class="stat"><div class="v num">${tw >= 1000 ? (tw / 1000).toFixed(1) : Math.round(tw)}<small> ${tw >= 1000 ? 't' : 'kg'}</small></div><div class="l">Lifted this week</div></div>
+    </div>`;
+}
+
 function renderProgress() {
   stopTick();
-  const chips = Object.entries(EXERCISES).map(([id, ex]) =>
-    `<button class="chip ${id === progressEx ? 'active' : ''}" data-ex-chip="${id}">${ex.name}</button>`).join('');
+  const chips = [`<button class="chip ${progressEx === 'fullbody' ? 'active' : ''}" data-ex-chip="fullbody">Full body</button>`]
+    .concat(Object.entries(EXERCISES).map(([id, ex]) =>
+      `<button class="chip ${id === progressEx ? 'active' : ''}" data-ex-chip="${id}">${ex.name}</button>`)).join('');
+
+  if (progressEx === 'fullbody') {
+    view.innerHTML = `
+      <div class="eyebrow">Trend</div>
+      <h1>Progress</h1>
+      <div class="chips mt12">${chips}</div>
+      ${renderFullBody()}`;
+    return;
+  }
 
   const series = exerciseSeries(state, progressEx);
   const ex = EXERCISES[progressEx];
@@ -537,27 +655,57 @@ function showFinishSummary(results) {
 
 // ---------- Global click handling ----------
 
+function refreshLogHints() {
+  const hint = document.getElementById('detect-hint');
+  const chips = document.getElementById('chip-row');
+  const sug = document.getElementById('suggest-row');
+  const lastH = document.getElementById('last-hint');
+  if (hint) {
+    hint.textContent = detectHint();
+    hint.classList.toggle('found', detectMuscles(draft.name).p.length > 0);
+  }
+  if (chips) chips.innerHTML = chipRow();
+  if (sug) sug.innerHTML = suggestRow();
+  if (lastH) lastH.textContent = lastTimeHint(draft.name);
+}
+
 document.addEventListener('input', (e) => {
   if (e.target.id === 'log-name') {
     draft.name = e.target.value;
-    const hint = document.getElementById('detect-hint');
-    const chips = document.getElementById('chip-row');
-    if (hint) {
-      hint.textContent = detectHint();
-      hint.classList.toggle('found', detectMuscles(draft.name).length > 0);
-    }
-    if (chips) chips.innerHTML = chipRow();
+    draft.overrides = {};
+    refreshLogHints();
   }
 });
 
 document.addEventListener('click', (e) => {
-  const el = e.target.closest('[data-action], [data-ex], [data-ex-chip], [data-step], [data-muscle], [data-del-entry]');
+  const el = e.target.closest('[data-action], [data-ex], [data-ex-chip], [data-step], [data-muscle], [data-del-entry], [data-suggest]');
   if (!el) return;
+
+  if (el.dataset.suggest !== undefined) {
+    const last = lastTimeFor(el.dataset.suggest);
+    draft.name = el.dataset.suggest;
+    draft.overrides = {};
+    if (last) {
+      const auto = detectMuscles(draft.name);
+      for (const m of MUSCLES) {
+        const stored = last.muscles.includes(m.id) ? 'p' : (last.secondary || []).includes(m.id) ? 's' : false;
+        const detected = auto.p.includes(m.id) ? 'p' : auto.s.includes(m.id) ? 's' : false;
+        if (stored !== detected) draft.overrides[m.id] = stored;
+      }
+      const set = (id, v) => { const i = document.getElementById(id); if (i && v != null) i.value = v; };
+      set('log-sets', last.sets); set('log-reps', last.reps); set('log-kg', last.kg);
+    }
+    const inp = document.getElementById('log-name');
+    if (inp) inp.value = draft.name;
+    refreshLogHints();
+    return;
+  }
 
   if (el.dataset.muscle) {
     const id = el.dataset.muscle;
-    const on = effectiveMuscles().includes(id);
-    draft.overrides[id] = !on;
+    const lvl = levelFor(id, detectMuscles(draft.name));
+    // cycle: primary -> half -> off -> primary
+    draft.overrides[id] = lvl === 'p' ? 's' : lvl === 's' ? false : 'p';
     const chips = document.getElementById('chip-row');
     if (chips) chips.innerHTML = chipRow();
     return;
@@ -631,9 +779,9 @@ document.addEventListener('click', (e) => {
     }
     case 'log-add': {
       const name = document.getElementById('log-name').value.trim();
-      const muscles = effectiveMuscles();
+      const eff = effectiveMuscles();
       if (!name) { document.getElementById('log-name').focus(); break; }
-      if (!muscles.length) {
+      if (!eff.p.length && !eff.s.length) {
         const hint = document.getElementById('detect-hint');
         if (hint) { hint.textContent = 'Select at least one muscle first.'; hint.classList.remove('found'); }
         break;
@@ -641,7 +789,7 @@ document.addEventListener('click', (e) => {
       const num = (id) => { const v = document.getElementById(id).value; return v ? Number(v) : null; };
       const dv = document.getElementById('log-date').value;
       const date = dv && dv !== todayISO() ? new Date(`${dv}T12:00:00`).getTime() : Date.now();
-      addFreeEntry(state, { name, muscles, date, sets: num('log-sets'), reps: num('log-reps'), kg: num('log-kg') });
+      addFreeEntry(state, { name, muscles: eff.p, secondary: eff.s, date, sets: num('log-sets'), reps: num('log-reps'), kg: num('log-kg') });
       draft.name = '';
       draft.overrides = {};
       render();
@@ -697,3 +845,4 @@ function scheduleSync() {
 
 render();
 if (getToken()) sync();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -3,13 +3,13 @@
 const LS_KEY = 'five5x5.v1';
 
 export const EXERCISES = {
-  'box-squat':      { name: 'Box Squat',      sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell. Sit back onto the box, brief pause, stand up.', muscles: ['quads', 'glutes'] },
-  'bench-press':    { name: 'Bench Press',    sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, flat bench.', muscles: ['chest', 'triceps'] },
-  'seated-row':     { name: 'Seated Row',     sets: 5, reps: 5,  start: 25, inc: 2.5, floor: 5,  note: 'Cable row, neutral grip.', muscles: ['back', 'biceps'] },
-  'leg-curl':       { name: 'Leg Curl',       sets: 3, reps: 10, start: 20, inc: 2.5, floor: 5,  note: 'Machine, seated or lying.', muscles: ['hamstrings'] },
-  'overhead-press': { name: 'Overhead Press', sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, standing.', muscles: ['shoulders', 'triceps'] },
-  'leg-press':      { name: 'Leg Press',      sets: 5, reps: 5,  start: 40, inc: 5,   floor: 20, note: 'Machine. Feet mid-platform.', muscles: ['quads', 'glutes'] },
-  'lat-pulldown':   { name: 'Lat Pulldown',   sets: 3, reps: 8,  start: 25, inc: 2.5, floor: 5,  note: 'Cable, pull to upper chest.', muscles: ['back', 'biceps'] },
+  'box-squat':      { name: 'Box Squat',      sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell. Sit back onto the box, brief pause, stand up.', muscles: ['quads', 'glutes'], secondary: ['hamstrings', 'abs', 'back'] },
+  'bench-press':    { name: 'Bench Press',    sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, flat bench.', muscles: ['chest', 'triceps'], secondary: ['shoulders'] },
+  'seated-row':     { name: 'Seated Row',     sets: 5, reps: 5,  start: 25, inc: 2.5, floor: 5,  note: 'Cable row, neutral grip.', muscles: ['back', 'biceps'], secondary: ['shoulders'] },
+  'leg-curl':       { name: 'Leg Curl',       sets: 3, reps: 10, start: 20, inc: 2.5, floor: 5,  note: 'Machine, seated or lying.', muscles: ['hamstrings'], secondary: ['calves'] },
+  'overhead-press': { name: 'Overhead Press', sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, standing.', muscles: ['shoulders', 'triceps'], secondary: ['abs'] },
+  'leg-press':      { name: 'Leg Press',      sets: 5, reps: 5,  start: 40, inc: 5,   floor: 20, note: 'Machine. Feet mid-platform.', muscles: ['quads', 'glutes'], secondary: ['hamstrings'] },
+  'lat-pulldown':   { name: 'Lat Pulldown',   sets: 3, reps: 8,  start: 25, inc: 2.5, floor: 5,  note: 'Cable, pull to upper chest.', muscles: ['back', 'biceps'], secondary: ['shoulders'] },
 };
 
 export const MUSCLES = [
@@ -25,37 +25,37 @@ export const MUSCLES = [
   { id: 'calves', label: 'Calves' },
 ];
 
-// Keyword rules for recognizing which muscles an exercise trains.
-// First matching rules win per muscle; multi-word/specific patterns come first.
+// Keyword rules for recognizing what an exercise trains.
+// p = primary muscles (full credit), s = secondary/assisting (half credit).
+// First matching rule wins; specific patterns come before generic ones.
 const DETECT_RULES = [
-  [/leg extension/, ['quads']],
-  [/leg curl|nordic|hamstring/, ['hamstrings']],
-  [/leg press|squat|lunge|hack|step.?up|pistol/, ['quads', 'glutes']],
-  [/hip thrust|glute|bridge|abduct/, ['glutes']],
-  [/calf|calves/, ['calves']],
-  [/deadlift|rdl|romanian|good morning|back extension|hyperextension/, ['hamstrings', 'glutes', 'back']],
-  [/bench|chest press|push.?up|dip|close.?grip/, ['chest', 'triceps']],
-  [/fly|flye|pec deck|cable cross/, ['chest']],
-  [/pullover/, ['chest', 'back']],
-  [/row|pulldown|pull.?down|pull.?up|chin|lat /, ['back', 'biceps']],
-  [/face pull|rear delt|reverse fly/, ['shoulders', 'back']],
-  [/shoulder press|overhead press|ohp|military|arnold|lateral|side raise|front raise|shrug|delt/, ['shoulders']],
-  [/triceps|pushdown|push.?down|skull|kickback|french/, ['triceps']],
-  [/curl/, ['biceps']],
-  [/crunch|plank|sit.?up|leg raise|russian twist|ab |abs|core|hanging/, ['abs']],
-  [/press/, ['chest', 'triceps']],
+  [/leg extension/, { p: ['quads'], s: [] }],
+  [/leg curl|nordic|hamstring/, { p: ['hamstrings'], s: ['calves'] }],
+  [/front squat|goblet/, { p: ['quads', 'glutes'], s: ['hamstrings', 'abs'] }],
+  [/leg press|squat|lunge|hack|step.?up|pistol|split/, { p: ['quads', 'glutes'], s: ['hamstrings', 'abs'] }],
+  [/hip thrust|glute|bridge|abduct/, { p: ['glutes'], s: ['hamstrings'] }],
+  [/calf|calves/, { p: ['calves'], s: [] }],
+  [/deadlift|rdl|romanian|good morning|back extension|hyperextension/, { p: ['hamstrings', 'glutes', 'back'], s: ['quads', 'abs'] }],
+  [/bench|chest press|push.?up|dip|close.?grip/, { p: ['chest', 'triceps'], s: ['shoulders'] }],
+  [/fly|flye|pec deck|cable cross/, { p: ['chest'], s: ['shoulders'] }],
+  [/pullover/, { p: ['chest', 'back'], s: ['triceps'] }],
+  [/pull.?up|chin/, { p: ['back', 'biceps'], s: ['shoulders', 'abs'] }],
+  [/row|pulldown|pull.?down|lat /, { p: ['back', 'biceps'], s: ['shoulders'] }],
+  [/face pull|rear delt|reverse fly/, { p: ['shoulders', 'back'], s: [] }],
+  [/shoulder press|overhead press|ohp|military|arnold/, { p: ['shoulders', 'triceps'], s: ['abs'] }],
+  [/lateral|side raise|front raise|shrug|delt/, { p: ['shoulders'], s: [] }],
+  [/triceps|pushdown|push.?down|skull|kickback|french/, { p: ['triceps'], s: [] }],
+  [/curl/, { p: ['biceps'], s: [] }],
+  [/crunch|plank|sit.?up|leg raise|russian twist|ab |abs|core|hanging/, { p: ['abs'], s: [] }],
+  [/press/, { p: ['chest', 'triceps'], s: ['shoulders'] }],
 ];
 
 export function detectMuscles(name) {
   const n = ` ${name.toLowerCase().trim()} `;
-  const found = new Set();
-  for (const [re, muscles] of DETECT_RULES) {
-    if (re.test(n)) {
-      muscles.forEach((m) => found.add(m));
-      if (found.size) break;
-    }
+  for (const [re, hit] of DETECT_RULES) {
+    if (re.test(n)) return { p: [...hit.p], s: [...hit.s] };
   }
-  return [...found];
+  return { p: [], s: [] };
 }
 
 export const WORKOUTS = {
@@ -201,17 +201,79 @@ export function deleteFreeEntry(state, id) {
 }
 
 // Last-trained timestamp per muscle, combining the free log and 5x5 history.
+// Secondary involvement counts as trained too.
 export function muscleLastTrained(state) {
   const last = {};
   for (const e of state.freeLog) {
-    for (const m of e.muscles) last[m] = Math.max(last[m] || 0, e.date);
+    for (const m of [...e.muscles, ...(e.secondary || [])]) last[m] = Math.max(last[m] || 0, e.date);
   }
   for (const h of state.history) {
     for (const e of h.exercises) {
-      for (const m of EXERCISES[e.id]?.muscles || []) last[m] = Math.max(last[m] || 0, h.date);
+      const def = EXERCISES[e.id];
+      for (const m of [...(def?.muscles || []), ...(def?.secondary || [])]) last[m] = Math.max(last[m] || 0, h.date);
     }
   }
   return last;
+}
+
+// Effective sets per muscle since a timestamp (free log + 5x5 history).
+// Primary muscles get full credit, secondary muscles half credit.
+// A free-log entry without a sets value counts as 1 set.
+export function setsPerMuscle(state, sinceTs) {
+  const counts = {};
+  for (const m of MUSCLES) counts[m.id] = 0;
+  const add = (muscles, secondary, sets) => {
+    for (const m of muscles) counts[m] = (counts[m] || 0) + sets;
+    for (const m of secondary) counts[m] = (counts[m] || 0) + sets * 0.5;
+  };
+  for (const e of state.freeLog) {
+    if (e.date >= sinceTs) add(e.muscles, e.secondary || [], e.sets || 1);
+  }
+  for (const h of state.history) {
+    if (h.date < sinceTs) continue;
+    for (const ex of h.exercises) {
+      const def = EXERCISES[ex.id];
+      add(def?.muscles || [], def?.secondary || [], ex.sets.length);
+    }
+  }
+  return counts;
+}
+
+export function mondayOf(ts) {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime();
+}
+
+// Total sets performed per week for the last `weeks` weeks, oldest first.
+export function weeklyVolume(state, weeks = 8) {
+  const thisMonday = mondayOf(Date.now());
+  const out = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    out.push({ start: thisMonday - i * 7 * 86400000, sets: 0 });
+  }
+  const bucket = (ts) => out.find((w) => ts >= w.start && ts < w.start + 7 * 86400000);
+  for (const e of state.freeLog) {
+    const b = bucket(e.date);
+    if (b) b.sets += e.sets || 1;
+  }
+  for (const h of state.history) {
+    const b = bucket(h.date);
+    if (b) for (const ex of h.exercises) b.sets += ex.sets.length;
+  }
+  return out;
+}
+
+export function tonnageSince(state, sinceTs) {
+  let kg = 0;
+  for (const h of state.history) {
+    if (h.date < sinceTs) continue;
+    for (const e of h.exercises) kg += e.weight * e.sets.reduce((a, b) => a + b, 0);
+  }
+  for (const e of state.freeLog) {
+    if (e.date < sinceTs) continue;
+    if (e.kg && e.reps) kg += e.kg * e.reps * (e.sets || 1);
+  }
+  return kg;
 }
 
 export function exerciseSeries(state, exId) {
