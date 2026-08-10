@@ -3,13 +3,13 @@
 const LS_KEY = 'five5x5.v1';
 
 export const EXERCISES = {
-  'box-squat':      { name: 'Box Squat',      sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell. Sit back onto the box, brief pause, stand up.', muscles: ['quads', 'glutes'], secondary: ['hamstrings', 'abs', 'back'] },
-  'bench-press':    { name: 'Bench Press',    sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, flat bench.', muscles: ['chest', 'triceps'], secondary: ['shoulders'] },
-  'seated-row':     { name: 'Seated Row',     sets: 5, reps: 5,  start: 25, inc: 2.5, floor: 5,  note: 'Cable row, neutral grip.', muscles: ['back', 'biceps'], secondary: ['shoulders'] },
+  'box-squat':      { name: 'Box Squat',      sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell. Sit back onto the box, brief pause, stand up.', muscles: ['quads', 'glutes'], secondary: ['hamstrings', 'abs', 'back', 'calves'] },
+  'bench-press':    { name: 'Bench Press',    sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, flat bench.', muscles: ['chest', 'triceps'], secondary: ['shoulders', 'abs'] },
+  'seated-row':     { name: 'Seated Row',     sets: 5, reps: 5,  start: 25, inc: 2.5, floor: 5,  note: 'Cable row, neutral grip.', muscles: ['back', 'biceps'], secondary: ['shoulders', 'abs'] },
   'leg-curl':       { name: 'Leg Curl',       sets: 3, reps: 10, start: 20, inc: 2.5, floor: 5,  note: 'Machine, seated or lying.', muscles: ['hamstrings'], secondary: ['calves'] },
   'overhead-press': { name: 'Overhead Press', sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, standing.', muscles: ['shoulders', 'triceps'], secondary: ['abs'] },
-  'leg-press':      { name: 'Leg Press',      sets: 5, reps: 5,  start: 40, inc: 5,   floor: 20, note: 'Machine. Feet mid-platform.', muscles: ['quads', 'glutes'], secondary: ['hamstrings'] },
-  'lat-pulldown':   { name: 'Lat Pulldown',   sets: 3, reps: 8,  start: 25, inc: 2.5, floor: 5,  note: 'Cable, pull to upper chest.', muscles: ['back', 'biceps'], secondary: ['shoulders'] },
+  'leg-press':      { name: 'Leg Press',      sets: 5, reps: 5,  start: 40, inc: 5,   floor: 20, note: 'Machine. Feet mid-platform.', muscles: ['quads', 'glutes'], secondary: ['hamstrings', 'calves'] },
+  'lat-pulldown':   { name: 'Lat Pulldown',   sets: 3, reps: 8,  start: 25, inc: 2.5, floor: 5,  note: 'Cable, pull to upper chest.', muscles: ['back', 'biceps'], secondary: ['shoulders', 'abs'] },
 };
 
 export const MUSCLES = [
@@ -31,16 +31,16 @@ export const MUSCLES = [
 const DETECT_RULES = [
   [/leg extension/, { p: ['quads'], s: [] }],
   [/leg curl|nordic|hamstring/, { p: ['hamstrings'], s: ['calves'] }],
-  [/front squat|goblet/, { p: ['quads', 'glutes'], s: ['hamstrings', 'abs'] }],
-  [/leg press|squat|lunge|hack|step.?up|pistol|split/, { p: ['quads', 'glutes'], s: ['hamstrings', 'abs'] }],
+  [/front squat|goblet/, { p: ['quads', 'glutes'], s: ['hamstrings', 'abs', 'calves'] }],
+  [/leg press|squat|lunge|hack|step.?up|pistol|split/, { p: ['quads', 'glutes'], s: ['hamstrings', 'abs', 'calves'] }],
   [/hip thrust|glute|bridge|abduct/, { p: ['glutes'], s: ['hamstrings'] }],
   [/calf|calves/, { p: ['calves'], s: [] }],
-  [/deadlift|rdl|romanian|good morning|back extension|hyperextension/, { p: ['hamstrings', 'glutes', 'back'], s: ['quads', 'abs'] }],
-  [/bench|chest press|push.?up|dip|close.?grip/, { p: ['chest', 'triceps'], s: ['shoulders'] }],
+  [/deadlift|rdl|romanian|good morning|back extension|hyperextension/, { p: ['hamstrings', 'glutes', 'back'], s: ['quads', 'abs', 'calves'] }],
+  [/bench|chest press|push.?up|dip|close.?grip/, { p: ['chest', 'triceps'], s: ['shoulders', 'abs'] }],
   [/fly|flye|pec deck|cable cross/, { p: ['chest'], s: ['shoulders'] }],
   [/pullover/, { p: ['chest', 'back'], s: ['triceps'] }],
   [/pull.?up|chin/, { p: ['back', 'biceps'], s: ['shoulders', 'abs'] }],
-  [/row|pulldown|pull.?down|lat /, { p: ['back', 'biceps'], s: ['shoulders'] }],
+  [/row|pulldown|pull.?down|lat /, { p: ['back', 'biceps'], s: ['shoulders', 'abs'] }],
   [/face pull|rear delt|reverse fly/, { p: ['shoulders', 'back'], s: [] }],
   [/shoulder press|overhead press|ohp|military|arnold/, { p: ['shoulders', 'triceps'], s: ['abs'] }],
   [/lateral|side raise|front raise|shrug|delt/, { p: ['shoulders'], s: [] }],

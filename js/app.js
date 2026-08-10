@@ -383,7 +383,9 @@ function renderLog() {
 
 function renderHistory() {
   stopTick();
-  const items = [...state.history].reverse().map((h) => {
+  const cards = [];
+
+  for (const h of state.history) {
     const rows = h.exercises.map((e) => {
       const ex = EXERCISES[e.id];
       const mark = e.success ? `<span class="ok">${icons.check}</span>` : `<span class="bad">${icons.x}</span>`;
@@ -393,7 +395,7 @@ function renderHistory() {
         <span class="r num">${e.sets.join(' · ')} ${mark}</span>
       </div>`;
     }).join('');
-    return `<div class="card h-item">
+    cards.push({ date: h.date, html: `<div class="card h-item">
       <div class="h-top">
         <div class="monogram ${h.type.toLowerCase()}">${h.type}</div>
         <div>
@@ -402,13 +404,41 @@ function renderHistory() {
         </div>
       </div>
       <div class="h-rows">${rows}</div>
-    </div>`;
-  }).join('');
+    </div>` });
+  }
 
+  // Freestyle entries grouped into one card per day
+  const byDay = new Map();
+  for (const e of state.freeLog) {
+    const key = new Date(e.date).toDateString();
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(e);
+  }
+  for (const items of byDay.values()) {
+    items.sort((a, b) => a.date - b.date);
+    const date = items[items.length - 1].date;
+    const rows = items.map((e) => `<div class="h-row">
+      <span class="n">${esc(e.name)}</span>
+      <span class="w num">${e.kg ? `${fmtKg(e.kg)} kg` : ''}</span>
+      <span class="r num">${e.sets && e.reps ? `${e.sets}×${e.reps}` : ''}</span>
+    </div>`).join('');
+    cards.push({ date, html: `<div class="card h-item">
+      <div class="h-top">
+        <div class="monogram f">F</div>
+        <div>
+          <div class="h-title">Freestyle</div>
+          <div class="h-date">${fmtDate(date)} · ${items.length} exercise${items.length > 1 ? 's' : ''}</div>
+        </div>
+      </div>
+      <div class="h-rows">${rows}</div>
+    </div>` });
+  }
+
+  cards.sort((a, b) => b.date - a.date);
   view.innerHTML = `
     <div class="eyebrow">Log</div>
     <h1>History</h1>
-    <div class="mt16">${items || `<div class="empty">${icons.calendar}<div>No workouts yet.<br>Your finished sessions land here.</div></div>`}</div>`;
+    <div class="mt16">${cards.map((c) => c.html).join('') || `<div class="empty">${icons.calendar}<div>No workouts yet.<br>Your finished sessions land here.</div></div>`}</div>`;
 }
 
 // ---------- Progress ----------
@@ -466,40 +496,71 @@ function renderFullBody() {
     </div>`;
 }
 
+// Unique freestyle exercises, most recently logged first.
+function freeExercises() {
+  const map = new Map();
+  for (const e of state.freeLog) {
+    const key = e.name.trim().toLowerCase();
+    if (!map.has(key) || map.get(key).date < e.date) map.set(key, e);
+  }
+  return [...map.entries()].sort((a, b) => b[1].date - a[1].date).slice(0, 10);
+}
+
+function freeSeries(nameKey) {
+  return state.freeLog
+    .filter((e) => e.name.trim().toLowerCase() === nameKey && e.kg)
+    .sort((a, b) => a.date - b.date)
+    .map((e) => ({ date: e.date, weight: e.kg, success: true }));
+}
+
 function renderProgress() {
   stopTick();
   const chips = [`<button class="chip ${progressEx === 'fullbody' ? 'active' : ''}" data-ex-chip="fullbody">Full body</button>`]
+    .concat(freeExercises().map(([key, e]) =>
+      `<button class="chip ${progressEx === `free:${key}` ? 'active' : ''}" data-ex-chip="free:${esc(key)}">${esc(e.name)}</button>`))
     .concat(Object.entries(EXERCISES).map(([id, ex]) =>
       `<button class="chip ${id === progressEx ? 'active' : ''}" data-ex-chip="${id}">${ex.name}</button>`)).join('');
 
+  const head = `
+    <div class="eyebrow">Trend</div>
+    <h1>Progress</h1>
+    <div class="chips mt12">${chips}</div>`;
+
   if (progressEx === 'fullbody') {
-    view.innerHTML = `
-      <div class="eyebrow">Trend</div>
-      <h1>Progress</h1>
-      <div class="chips mt12">${chips}</div>
-      ${renderFullBody()}`;
+    view.innerHTML = `${head}${renderFullBody()}`;
     return;
   }
 
-  const series = exerciseSeries(state, progressEx);
-  const ex = EXERCISES[progressEx];
-  const p = state.prog[progressEx];
-  const gained = series.length ? p.weight - series[0].weight : 0;
-
-  view.innerHTML = `
-    <div class="eyebrow">Trend</div>
-    <h1>Progress</h1>
-    <div class="chips mt12">${chips}</div>
-    <div class="card chart-card" style="position:relative">
-      <div class="chart-title">${ex.name}</div>
-      <div class="chart-sub">Working weight per session (kg)</div>
-      ${series.length >= 2 ? buildChart(series) : `<div class="empty">${icons.trendingUp}<div>Do at least two workouts with<br>${ex.name} to see a trend.</div></div>`}
-    </div>
-    <div class="stat-strip">
+  let series, title, statHtml;
+  if (progressEx.startsWith('free:')) {
+    const key = progressEx.slice(5);
+    series = freeSeries(key);
+    const all = state.freeLog.filter((e) => e.name.trim().toLowerCase() === key);
+    title = all.length ? all[all.length - 1].name : key;
+    const last = series[series.length - 1];
+    const gained = series.length ? last.weight - series[0].weight : 0;
+    statHtml = `
+      <div class="stat"><div class="v num">${last ? fmtKg(last.weight) : '—'}<small> kg</small></div><div class="l">Last logged</div></div>
+      <div class="stat"><div class="v num">${gained >= 0 ? '+' : ''}${fmtKg(gained)}<small> kg</small></div><div class="l">Since start</div></div>
+      <div class="stat"><div class="v num">${all.length}</div><div class="l">Times logged</div></div>`;
+  } else {
+    series = exerciseSeries(state, progressEx);
+    title = EXERCISES[progressEx].name;
+    const p = state.prog[progressEx];
+    const gained = series.length ? p.weight - series[0].weight : 0;
+    statHtml = `
       <div class="stat"><div class="v num">${fmtKg(p.weight)}<small> kg</small></div><div class="l">Next workout</div></div>
       <div class="stat"><div class="v num">${gained >= 0 ? '+' : ''}${fmtKg(gained)}<small> kg</small></div><div class="l">Since start</div></div>
-      <div class="stat"><div class="v num">${series.length}</div><div class="l">Sessions</div></div>
-    </div>`;
+      <div class="stat"><div class="v num">${series.length}</div><div class="l">Sessions</div></div>`;
+  }
+
+  view.innerHTML = `${head}
+    <div class="card chart-card" style="position:relative">
+      <div class="chart-title">${esc(title)}</div>
+      <div class="chart-sub">Weight per session (kg)</div>
+      ${series.length >= 2 ? buildChart(series) : `<div class="empty">${icons.trendingUp}<div>Log ${esc(title)} with a weight at least twice<br>to see a trend.</div></div>`}
+    </div>
+    <div class="stat-strip">${statHtml}</div>`;
 
   attachChartHover(series);
 }

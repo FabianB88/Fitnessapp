@@ -192,6 +192,7 @@ h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; margin: 6px 0 3
 }
 .monogram.a { background: var(--mint); color: var(--mint-deep); }
 .monogram.b { background: var(--butter); color: var(--butter-deep); }
+.monogram.f { background: #EAE4F6; color: #5F4B8B; }
 .hero-top .t { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
 .hero-top .s { font-size: 13px; color: var(--ink-2); margin-top: 1px; }
 
