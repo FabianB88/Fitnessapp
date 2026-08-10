@@ -3,11 +3,11 @@
 const LS_KEY = 'five5x5.v1';
 
 export const EXERCISES = {
-  'box-squat':      { name: 'Box Squat',      sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell. Sit back onto the box, brief pause, stand up.', muscles: ['quads', 'glutes'], secondary: ['hamstrings', 'abs', 'back', 'calves'] },
-  'bench-press':    { name: 'Bench Press',    sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, flat bench.', muscles: ['chest', 'triceps'], secondary: ['shoulders', 'abs'] },
+  'box-squat':      { name: 'Box Squat',      sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, bar: true, note: 'Barbell. Sit back onto the box, brief pause, stand up.', muscles: ['quads', 'glutes'], secondary: ['hamstrings', 'abs', 'back', 'calves'] },
+  'bench-press':    { name: 'Bench Press',    sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, bar: true, note: 'Barbell, flat bench.', muscles: ['chest', 'triceps'], secondary: ['shoulders', 'abs'] },
   'seated-row':     { name: 'Seated Row',     sets: 5, reps: 5,  start: 25, inc: 2.5, floor: 5,  note: 'Cable row, neutral grip.', muscles: ['back', 'biceps'], secondary: ['shoulders', 'abs'] },
   'leg-curl':       { name: 'Leg Curl',       sets: 3, reps: 10, start: 20, inc: 2.5, floor: 5,  note: 'Machine, seated or lying.', muscles: ['hamstrings'], secondary: ['calves'] },
-  'overhead-press': { name: 'Overhead Press', sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, standing.', muscles: ['shoulders', 'triceps'], secondary: ['abs'] },
+  'overhead-press': { name: 'Overhead Press', sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, bar: true, note: 'Barbell, standing.', muscles: ['shoulders', 'triceps'], secondary: ['abs'] },
   'leg-press':      { name: 'Leg Press',      sets: 5, reps: 5,  start: 40, inc: 5,   floor: 20, note: 'Machine. Feet mid-platform.', muscles: ['quads', 'glutes'], secondary: ['hamstrings', 'calves'] },
   'lat-pulldown':   { name: 'Lat Pulldown',   sets: 3, reps: 8,  start: 25, inc: 2.5, floor: 5,  note: 'Cable, pull to upper chest.', muscles: ['back', 'biceps'], secondary: ['shoulders', 'abs'] },
 };
@@ -72,7 +72,9 @@ export function defaultState() {
     version: 1,
     prog,
     history: [],
-    freeLog: [],            // [{ id, date, name, muscles: [], sets, reps, kg }]
+    freeLog: [],            // [{ id, date, name, muscles: [], secondary: [], sets, reps, kg, note }]
+    weights: [],            // [{ date, kg }] body weight
+    goal: 3,                // training days per week
     next: 'A',
     active: null,           // { type, startedAt, sets: { exId: [n|null, ...] } }
     onboardDismissed: false,
@@ -274,6 +276,55 @@ export function tonnageSince(state, sinceTs) {
     if (e.kg && e.reps) kg += e.kg * e.reps * (e.sets || 1);
   }
   return kg;
+}
+
+// Consecutive weeks (including this one if already met) hitting the weekly goal.
+export function weekStreak(state) {
+  const goal = state.goal || 3;
+  const perWeek = new Map();
+  const seen = new Set();
+  for (const x of [...state.history, ...state.freeLog]) {
+    const dayKey = new Date(x.date).toDateString();
+    if (seen.has(dayKey)) continue;
+    seen.add(dayKey);
+    const wk = mondayOf(x.date);
+    perWeek.set(wk, (perWeek.get(wk) || 0) + 1);
+  }
+  const week = 7 * 86400000;
+  let w = mondayOf(Date.now());
+  let streak = 0;
+  if ((perWeek.get(w) || 0) >= goal) streak++;
+  w -= week;
+  while ((perWeek.get(w) || 0) >= goal) { streak++; w -= week; }
+  return streak;
+}
+
+// Suggested 5x5 starting weights derived from the free log: ~50% of the best
+// recent matching lift, because the program deliberately starts light.
+const START_MATCH = {
+  'box-squat': /squat/,
+  'bench-press': /bench|chest press/,
+  'seated-row': /row/,
+  'overhead-press': /overhead|shoulder press|ohp|military/,
+  'leg-press': /leg press/,
+  'lat-pulldown': /pulldown|pull.?down|pull.?up|chin/,
+  'leg-curl': /leg curl/,
+};
+
+export function suggestStarts(state) {
+  const cutoff = Date.now() - 60 * 86400000;
+  const rows = [];
+  for (const [id, ex] of Object.entries(EXERCISES)) {
+    const re = START_MATCH[id];
+    let best = 0;
+    for (const e of state.freeLog) {
+      if (e.date >= cutoff && e.kg && re.test(e.name.toLowerCase())) best = Math.max(best, e.kg);
+    }
+    if (!best) continue;
+    const suggested = Math.max(ex.floor, roundStep(best * 0.5));
+    rows.push({ id, name: ex.name, from: best, current: state.prog[id].weight, suggested });
+  }
+  return rows;
 }
 
 export function exerciseSeries(state, exId) {

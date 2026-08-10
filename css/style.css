@@ -608,6 +608,47 @@ h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; margin: 6px 0 3
 .log-nums { display: flex; gap: 10px; margin-top: 12px; }
 .log-nums input { text-align: center; padding: 12px 6px; }
 
+.btn-row { display: flex; gap: 10px; }
+.btn-row .btn-ghost { flex: 1; }
+.btn-row .btn-primary { flex: 1.4; }
+
+.edit-banner {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--butter);
+  color: var(--butter-deep);
+  padding: 5px 12px;
+  border-radius: 99px;
+  margin-bottom: 12px;
+}
+
+.e-note {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  font-style: italic;
+  margin-top: 5px;
+  font-weight: 500;
+}
+
+.bw-card { padding: 16px 20px; }
+.bw-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.bw-inputs { display: flex; gap: 8px; align-items: center; }
+.bw-inputs input { width: 84px; text-align: center; }
+.bw-btn { width: 48px; min-height: 48px; flex-shrink: 0; padding: 0; }
+
+.plate-hint {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.vol-row[role="button"] { cursor: pointer; }
+
 .log-date-row {
   display: flex;
   align-items: center;

@@ -3,7 +3,7 @@ import {
   EXERCISES, WORKOUTS, MUSCLES, loadState, persist, startWorkout, tapSet,
   finishWorkout, discardWorkout, totalTonnage, workoutsThisWeek, exerciseSeries,
   detectMuscles, addFreeEntry, deleteFreeEntry, muscleLastTrained,
-  setsPerMuscle, weeklyVolume, tonnageSince,
+  setsPerMuscle, weeklyVolume, tonnageSince, weekStreak, suggestStarts, roundStep,
 } from './store.js';
 import { getToken, setToken, fetchRemote, pushRemote } from './github.js';
 
@@ -12,6 +12,8 @@ let tab = 'home';
 let progressEx = 'fullbody';
 let rest = null;        // { since, hard }
 let tickHandle = null;
+let restTickHandle = null;
+let pendingStarts = null;
 let syncState = { status: getToken() ? 'idle' : 'off', msg: '' };
 
 const view = document.getElementById('view');
@@ -60,6 +62,7 @@ function render() {
     ({ home: renderHome, log: renderLog, history: renderHistory, progress: renderProgress, settings: renderSettings })[tab]();
   }
   renderTabs();
+  renderRest();
 }
 function renderIf(name) { if (tab === name && !state.active) render(); }
 
@@ -135,10 +138,15 @@ function renderHome() {
       <button class="btn btn-primary" data-action="start">Start workout ${icons.arrowRight}</button>
     </div>
     <div class="stat-strip">
-      <div class="stat"><div class="v num">${state.history.length}</div><div class="l">Workouts</div></div>
-      <div class="stat"><div class="v num">${workoutsThisWeek(state)}<small>/3</small></div><div class="l">This week</div></div>
+      <div class="stat"><div class="v num">${weekStreak(state)}<small> wk</small></div><div class="l">Goal streak</div></div>
+      <div class="stat"><div class="v num">${new Set([...state.history, ...state.freeLog].filter((x) => x.date >= mondayTs()).map((x) => new Date(x.date).toDateString())).size}<small>/${state.goal || 3}</small></div><div class="l">This week</div></div>
       <div class="stat"><div class="v num">${tonnage >= 1000 ? (tonnage / 1000).toFixed(1) : tonnage}<small> ${tonnage >= 1000 ? 't' : 'kg'}</small></div><div class="l">Total lifted</div></div>
     </div>`;
+}
+
+function mondayTs() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7)).getTime();
 }
 
 // ---------- Workout ----------
@@ -159,6 +167,7 @@ function renderWorkout() {
     return `<div class="card ex-card">
       <div class="ex-top"><span class="ex-name">${ex.name}</span><span class="ex-target">${ex.sets}×${ex.reps}</span></div>
       <div class="ex-weight num">${fmtKg(p.weight)} <small>kg</small></div>
+      ${ex.bar ? `<div class="plate-hint">${plateHint(p.weight)}</div>` : ''}
       ${flags.length ? `<div class="ex-flags">${flags.join('')}</div>` : ''}
       <div class="sets">${circles}</div>
     </div>`;
@@ -176,11 +185,21 @@ function renderWorkout() {
     ${cards}
     <div class="finish-wrap">
       <button class="btn btn-primary" data-action="finish">${icons.check} Finish workout</button>
-    </div>
-    <div id="rest-slot"></div>`;
+    </div>`;
 
   startTick(startedAt);
   renderRest();
+}
+
+// Which plates to load per side of a 20 kg bar.
+function plateHint(weight) {
+  if (weight <= 20) return 'Empty bar';
+  let rem = (weight - 20) / 2;
+  const out = [];
+  for (const p of [25, 20, 15, 10, 5, 2.5, 1.25]) {
+    while (rem >= p - 0.001) { out.push(fmtKg(p)); rem -= p; }
+  }
+  return `Per side: ${out.join(' + ')}`;
 }
 
 function startTick(startedAt) {
@@ -195,8 +214,16 @@ function startTick(startedAt) {
 }
 function stopTick() { if (tickHandle) { clearInterval(tickHandle); tickHandle = null; } }
 
+function ensureRestTick() {
+  if (restTickHandle) return;
+  restTickHandle = setInterval(() => {
+    if (!rest) { clearInterval(restTickHandle); restTickHandle = null; return; }
+    updateRestClock();
+  }, 1000);
+}
+
 function renderRest() {
-  const slot = document.getElementById('rest-slot');
+  const slot = document.getElementById('rest-root');
   if (!slot) return;
   if (!rest) { slot.innerHTML = ''; return; }
   slot.innerHTML = `
@@ -226,7 +253,12 @@ function updateRestClock() {
 
 // ---------- Free log ----------
 
-const draft = { name: '', overrides: {} };
+const draft = { name: '', overrides: {}, sets: '', reps: '', kg: '', note: '', editingId: null };
+
+function resetDraft() {
+  draft.name = ''; draft.overrides = {}; draft.sets = ''; draft.reps = '';
+  draft.kg = ''; draft.note = ''; draft.editingId = null;
+}
 
 // Involvement level per muscle: 'p' (primary), 's' (secondary/half), or false.
 function levelFor(id, auto) {
@@ -306,7 +338,20 @@ function lastTimeHint(name) {
   const last = lastTimeFor(name);
   if (!last) return '';
   const meta = [last.sets && last.reps ? `${last.sets}×${last.reps}` : '', last.kg ? `${last.kg} kg` : ''].filter(Boolean).join(' · ');
-  return meta ? `Last time: ${meta} (${agoLabel(last.date)})` : `Logged before (${agoLabel(last.date)})`;
+  const base = meta ? `Last time: ${meta} (${agoLabel(last.date)})` : `Logged before (${agoLabel(last.date)})`;
+  const tip = progressionHint(last);
+  return tip ? `${base} — ${tip}` : base;
+}
+
+// Double progression: add a rep until ~12, then add weight and drop back to 8.
+function progressionHint(last) {
+  if (!last || draft.editingId) return '';
+  if (last.sets && last.reps && last.kg) {
+    if (last.reps < 12) return `today try ${last.sets}×${last.reps + 1} @ ${fmtKg(last.kg)} kg`;
+    return `today try ${last.sets}×8 @ ${fmtKg(roundStep(last.kg + 2.5))} kg`;
+  }
+  if (last.kg) return `today try ${fmtKg(roundStep(last.kg + 2.5))} kg`;
+  return '';
 }
 
 function detectHint() {
@@ -342,11 +387,12 @@ function renderLog() {
       <div class="h-title" style="margin-bottom:4px">${g.label}</div>
       ${g.items.map((e) => `
         <div class="entry-row">
-          <div class="info">
+          <div class="info" data-edit-entry="${e.id}" role="button">
             <div class="n">${esc(e.name)}</div>
             <div class="tags">${e.muscles.map((id) => `<span class="tag">${MUSCLES.find((m) => m.id === id)?.label || id}</span>`).join('')}${(e.secondary || []).map((id) => `<span class="tag half">${MUSCLES.find((m) => m.id === id)?.label || id} ½</span>`).join('')}</div>
+            ${e.note ? `<div class="e-note">${esc(e.note)}</div>` : ''}
           </div>
-          <span class="meta">${[e.sets && e.reps ? `${e.sets}×${e.reps}` : '', e.kg ? `${e.kg} kg` : ''].filter(Boolean).join(' · ')}</span>
+          <span class="meta">${[e.sets && e.reps ? `${e.sets}×${e.reps}` : e.sets ? `${e.sets} sets` : '', e.kg ? `${e.kg} kg` : ''].filter(Boolean).join(' · ')}</span>
           <button class="del" data-del-entry="${e.id}">${icons.trash}</button>
         </div>`).join('')}
     </div>`).join('');
@@ -357,21 +403,42 @@ function renderLog() {
     <div class="sub">Log any exercise — muscles are tracked automatically.</div>
 
     <div class="card mt16">
+      ${draft.editingId ? '<div class="edit-banner">Editing entry</div>' : ''}
       <input type="text" id="log-name" placeholder="e.g. Biceps curl" value="${esc(draft.name)}" autocomplete="off" enterkeyhint="done">
       <div class="suggest-row" id="suggest-row">${suggestRow()}</div>
-      <div class="detect-hint ${detectMuscles(draft.name).length ? 'found' : ''}" id="detect-hint">${detectHint()}</div>
+      <div class="detect-hint ${detectMuscles(draft.name).p.length ? 'found' : ''}" id="detect-hint">${detectHint()}</div>
       <div class="last-hint" id="last-hint">${lastTimeHint(draft.name)}</div>
       <div class="muscle-grid" id="chip-row">${chipRow()}</div>
       <div class="log-nums">
-        <input type="number" id="log-sets" placeholder="Sets" inputmode="numeric" min="0">
-        <input type="number" id="log-reps" placeholder="Reps" inputmode="numeric" min="0">
-        <input type="number" id="log-kg" placeholder="kg" inputmode="decimal" min="0" step="0.5">
+        <input type="number" id="log-sets" placeholder="Sets" inputmode="numeric" min="0" value="${esc(String(draft.sets))}">
+        <input type="number" id="log-reps" placeholder="Reps" inputmode="numeric" min="0" value="${esc(String(draft.reps))}">
+        <input type="number" id="log-kg" placeholder="kg" inputmode="decimal" min="0" step="0.5" value="${esc(String(draft.kg))}">
       </div>
+      <input type="text" id="log-note" class="mt12" placeholder="Note (optional)" value="${esc(draft.note)}" autocomplete="off">
       <div class="log-date-row">
         <span class="log-date-label">${icons.calendar} Date</span>
-        <input type="date" id="log-date" value="${todayISO()}" max="${todayISO()}">
+        <input type="date" id="log-date" value="${draft.editingId ? new Date(state.freeLog.find((e) => e.id === draft.editingId)?.date || Date.now()).toLocaleDateString('en-CA') : todayISO()}" max="${todayISO()}">
       </div>
-      <button class="btn btn-primary mt16" data-action="log-add">Log exercise ${icons.arrowRight}</button>
+      <div class="btn-row mt16">
+        ${draft.editingId
+          ? `<button class="btn btn-ghost" data-action="log-cancel-edit">Cancel</button>
+             <button class="btn btn-primary" data-action="log-add">Save changes</button>`
+          : `<button class="btn btn-ghost" data-action="log-set-done">${icons.plus} Set done</button>
+             <button class="btn btn-primary" data-action="log-add">Log exercise ${icons.arrowRight}</button>`}
+      </div>
+    </div>
+
+    <div class="card bw-card">
+      <div class="bw-row">
+        <div>
+          <div class="chart-title" style="padding:0 0 2px">Body weight</div>
+          <div class="chart-sub" style="padding:0">${state.weights.length ? `${fmtKg(state.weights[state.weights.length - 1].kg)} kg · ${agoLabel(state.weights[state.weights.length - 1].date)}` : 'Not logged yet'}</div>
+        </div>
+        <div class="bw-inputs">
+          <input type="number" id="bw-input" placeholder="kg" inputmode="decimal" min="0" step="0.1">
+          <button class="btn btn-ghost bw-btn" data-action="bw-save">${icons.check}</button>
+        </div>
+      </div>
     </div>
 
     <div class="section-label">Muscles — last trained</div>
@@ -452,7 +519,7 @@ function renderFullBody() {
   const bars = MUSCLES.map((m) => {
     const n = counts[m.id] || 0;
     const cls = n === 0 ? 'zero' : n < 6 ? 'low' : 'good';
-    return `<div class="vol-row">
+    return `<div class="vol-row" data-muscle-detail="${m.id}" role="button">
       <span class="vol-label">${m.label}</span>
       <div class="vol-track"><div class="vol-fill ${cls}" style="width:${Math.max(n / max * 100, n ? 6 : 0)}%"></div></div>
       <span class="vol-n num">${fmtKg(n)}</span>
@@ -518,6 +585,7 @@ function freeSeries(nameKey) {
 function renderProgress() {
   stopTick();
   const chips = [`<button class="chip ${progressEx === 'fullbody' ? 'active' : ''}" data-ex-chip="fullbody">Full body</button>`]
+    .concat(state.weights.length ? [`<button class="chip ${progressEx === 'bodyweight' ? 'active' : ''}" data-ex-chip="bodyweight">Body weight</button>`] : [])
     .concat(freeExercises().map(([key, e]) =>
       `<button class="chip ${progressEx === `free:${key}` ? 'active' : ''}" data-ex-chip="free:${esc(key)}">${esc(e.name)}</button>`))
     .concat(Object.entries(EXERCISES).map(([id, ex]) =>
@@ -534,7 +602,16 @@ function renderProgress() {
   }
 
   let series, title, statHtml;
-  if (progressEx.startsWith('free:')) {
+  if (progressEx === 'bodyweight') {
+    series = state.weights.map((w) => ({ date: w.date, weight: w.kg, success: true }));
+    title = 'Body weight';
+    const last = series[series.length - 1];
+    const diff = series.length ? last.weight - series[0].weight : 0;
+    statHtml = `
+      <div class="stat"><div class="v num">${last ? fmtKg(last.weight) : '—'}<small> kg</small></div><div class="l">Current</div></div>
+      <div class="stat"><div class="v num">${diff >= 0 ? '+' : ''}${diff.toFixed(1).replace('.0', '')}<small> kg</small></div><div class="l">Since start</div></div>
+      <div class="stat"><div class="v num">${series.length}</div><div class="l">Entries</div></div>`;
+  } else if (progressEx.startsWith('free:')) {
     const key = progressEx.slice(5);
     series = freeSeries(key);
     const all = state.freeLog.filter((e) => e.name.trim().toLowerCase() === key);
@@ -663,6 +740,19 @@ function renderSettings() {
     <div class="eyebrow">Setup</div>
     <h1>Settings</h1>
 
+    <div class="section-label">Training</div>
+    <div class="card">
+      <div class="set-row">
+        <div class="info"><div class="n">Weekly goal</div><div class="d">Training days per week for your streak</div></div>
+        <div class="stepper">
+          <button data-goal-step="-1" aria-label="Decrease">${icons.minus}</button>
+          <span class="val num">${state.goal || 3} <small>days</small></span>
+          <button data-goal-step="1" aria-label="Increase">${icons.plus}</button>
+        </div>
+      </div>
+      <button class="btn btn-ghost mt12" data-action="suggest-starts">${icons.barbell} Suggest 5×5 starting weights from my log</button>
+    </div>
+
     <div class="section-label">Current weights</div>
     <div class="card">${rows}</div>
 
@@ -698,6 +788,36 @@ function closeModal() { modalRoot.innerHTML = ''; }
 modalRoot.addEventListener('click', (e) => {
   if (e.target.classList.contains('modal-overlay')) closeModal();
 });
+
+function showMuscleDetail(muscleId) {
+  const label = MUSCLES.find((m) => m.id === muscleId)?.label || muscleId;
+  const cutoff = Date.now() - 21 * 86400000;
+  const items = [];
+  for (const e of state.freeLog) {
+    if (e.date < cutoff) continue;
+    if (e.muscles.includes(muscleId)) items.push({ name: e.name, date: e.date, sets: e.sets || 1, lvl: 'p' });
+    else if ((e.secondary || []).includes(muscleId)) items.push({ name: e.name, date: e.date, sets: e.sets || 1, lvl: 's' });
+  }
+  for (const h of state.history) {
+    if (h.date < cutoff) continue;
+    for (const ex of h.exercises) {
+      const def = EXERCISES[ex.id];
+      if (def?.muscles.includes(muscleId)) items.push({ name: def.name, date: h.date, sets: ex.sets.length, lvl: 'p' });
+      else if ((def?.secondary || []).includes(muscleId)) items.push({ name: def.name, date: h.date, sets: ex.sets.length, lvl: 's' });
+    }
+  }
+  items.sort((a, b) => b.date - a.date);
+  const rows = items.slice(0, 12).map((i) => `
+    <div class="result-row same">
+      <span class="n">${esc(i.name)}</span>
+      <span class="tag ${i.lvl === 's' ? 'half' : ''}">${i.lvl === 's' ? '½' : 'full'}</span>
+      <span class="delta num">${i.sets} sets · ${dayLabel(i.date)}</span>
+    </div>`).join('');
+  openModal(`
+    <h2>${label} — last 3 weeks</h2>
+    ${rows ? `<div class="result-rows">${rows}</div>` : `<div class="body">Nothing hit ${label.toLowerCase()} in the last 3 weeks.</div>`}
+    <div class="actions"><button class="btn btn-primary" data-action="close-modal">Close</button></div>`);
+}
 
 function showFinishSummary(results) {
   const rows = results.map((r) => {
@@ -737,12 +857,50 @@ document.addEventListener('input', (e) => {
     draft.name = e.target.value;
     draft.overrides = {};
     refreshLogHints();
-  }
+  } else if (e.target.id === 'log-sets') draft.sets = e.target.value;
+  else if (e.target.id === 'log-reps') draft.reps = e.target.value;
+  else if (e.target.id === 'log-kg') draft.kg = e.target.value;
+  else if (e.target.id === 'log-note') draft.note = e.target.value;
 });
 
 document.addEventListener('click', (e) => {
-  const el = e.target.closest('[data-action], [data-ex], [data-ex-chip], [data-step], [data-muscle], [data-del-entry], [data-suggest]');
+  const el = e.target.closest('[data-action], [data-ex], [data-ex-chip], [data-step], [data-muscle], [data-del-entry], [data-suggest], [data-edit-entry], [data-muscle-detail], [data-goal-step]');
   if (!el) return;
+
+  if (el.dataset.editEntry) {
+    const entry = state.freeLog.find((x) => x.id === Number(el.dataset.editEntry));
+    if (entry) {
+      draft.name = entry.name;
+      draft.sets = entry.sets ?? '';
+      draft.reps = entry.reps ?? '';
+      draft.kg = entry.kg ?? '';
+      draft.note = entry.note || '';
+      draft.editingId = entry.id;
+      draft.overrides = {};
+      const auto = detectMuscles(entry.name);
+      for (const m of MUSCLES) {
+        const stored = entry.muscles.includes(m.id) ? 'p' : (entry.secondary || []).includes(m.id) ? 's' : false;
+        const detected = auto.p.includes(m.id) ? 'p' : auto.s.includes(m.id) ? 's' : false;
+        if (stored !== detected) draft.overrides[m.id] = stored;
+      }
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    return;
+  }
+
+  if (el.dataset.muscleDetail) {
+    showMuscleDetail(el.dataset.muscleDetail);
+    return;
+  }
+
+  if (el.dataset.goalStep) {
+    state.goal = Math.min(7, Math.max(1, (state.goal || 3) + Number(el.dataset.goalStep)));
+    persist(state);
+    render();
+    scheduleSync();
+    return;
+  }
 
   if (el.dataset.suggest !== undefined) {
     const last = lastTimeFor(el.dataset.suggest);
@@ -755,8 +913,8 @@ document.addEventListener('click', (e) => {
         const detected = auto.p.includes(m.id) ? 'p' : auto.s.includes(m.id) ? 's' : false;
         if (stored !== detected) draft.overrides[m.id] = stored;
       }
-      const set = (id, v) => { const i = document.getElementById(id); if (i && v != null) i.value = v; };
-      set('log-sets', last.sets); set('log-reps', last.reps); set('log-kg', last.kg);
+      const set = (id, key, v) => { draft[key] = v ?? ''; const i = document.getElementById(id); if (i && v != null) i.value = v; };
+      set('log-sets', 'sets', last.sets); set('log-reps', 'reps', last.reps); set('log-kg', 'kg', last.kg);
     }
     const inp = document.getElementById('log-name');
     if (inp) inp.value = draft.name;
@@ -850,11 +1008,99 @@ document.addEventListener('click', (e) => {
         break;
       }
       const num = (id) => { const v = document.getElementById(id).value; return v ? Number(v) : null; };
+      const note = document.getElementById('log-note').value.trim() || null;
       const dv = document.getElementById('log-date').value;
-      const date = dv && dv !== todayISO() ? new Date(`${dv}T12:00:00`).getTime() : Date.now();
-      addFreeEntry(state, { name, muscles: eff.p, secondary: eff.s, date, sets: num('log-sets'), reps: num('log-reps'), kg: num('log-kg') });
-      draft.name = '';
-      draft.overrides = {};
+
+      if (draft.editingId) {
+        const entry = state.freeLog.find((x) => x.id === draft.editingId);
+        if (entry) {
+          Object.assign(entry, { name, muscles: eff.p, secondary: eff.s, sets: num('log-sets'), reps: num('log-reps'), kg: num('log-kg'), note });
+          const origISO = new Date(entry.date).toLocaleDateString('en-CA');
+          if (dv && dv !== origISO) entry.date = new Date(`${dv}T12:00:00`).getTime();
+          persist(state);
+        }
+      } else {
+        const date = dv && dv !== todayISO() ? new Date(`${dv}T12:00:00`).getTime() : Date.now();
+        addFreeEntry(state, { name, muscles: eff.p, secondary: eff.s, date, sets: num('log-sets'), reps: num('log-reps'), kg: num('log-kg'), note });
+      }
+      resetDraft();
+      render();
+      scheduleSync();
+      break;
+    }
+    case 'log-cancel-edit':
+      resetDraft();
+      render();
+      break;
+    case 'log-set-done': {
+      const name = document.getElementById('log-name').value.trim();
+      if (!name) { document.getElementById('log-name').focus(); break; }
+      const eff = effectiveMuscles();
+      if (!eff.p.length && !eff.s.length) {
+        const hint = document.getElementById('detect-hint');
+        if (hint) { hint.textContent = 'Select at least one muscle first.'; hint.classList.remove('found'); }
+        break;
+      }
+      const num = (id) => { const v = document.getElementById(id).value; return v ? Number(v) : null; };
+      const key = name.toLowerCase();
+      const today = todayISO();
+      const existing = state.freeLog.find((x) =>
+        x.name.trim().toLowerCase() === key && new Date(x.date).toLocaleDateString('en-CA') === today);
+      if (existing) {
+        existing.sets = (existing.sets || 0) + 1;
+        if (num('log-reps')) existing.reps = num('log-reps');
+        if (num('log-kg')) existing.kg = num('log-kg');
+        persist(state);
+      } else {
+        addFreeEntry(state, { name, muscles: eff.p, secondary: eff.s, date: Date.now(), sets: 1, reps: num('log-reps'), kg: num('log-kg'), note: null });
+      }
+      draft.sets = existing ? existing.sets : 1;
+      rest = { since: Date.now(), hard: false };
+      render();
+      renderRest();
+      ensureRestTick();
+      scheduleSync();
+      break;
+    }
+    case 'bw-save': {
+      const v = Number(document.getElementById('bw-input').value);
+      if (!v) break;
+      state.weights.push({ date: Date.now(), kg: v });
+      persist(state);
+      render();
+      scheduleSync();
+      break;
+    }
+    case 'suggest-starts': {
+      const rows = suggestStarts(state);
+      if (!rows.length) {
+        openModal(`
+          <h2>Nothing to base it on yet</h2>
+          <div class="body">Log some exercises with weights first (squat, bench, row, presses…) — then I can derive sensible 5×5 starting weights from them.</div>
+          <div class="actions"><button class="btn btn-primary" data-action="close-modal">OK</button></div>`);
+        break;
+      }
+      pendingStarts = rows;
+      openModal(`
+        <h2>Suggested starting weights</h2>
+        <div class="body">About half of your best recent lift — 5×5 starts deliberately light and climbs every workout.</div>
+        <div class="result-rows">${rows.map((r) => `
+          <div class="result-row same">${icons.barbell}<span class="n">${r.name}</span>
+          <span class="delta num">${fmtKg(r.current)} → ${fmtKg(r.suggested)} kg</span></div>`).join('')}</div>
+        <div class="actions">
+          <button class="btn btn-primary" data-action="apply-starts">Apply</button>
+          <button class="btn btn-ghost" data-action="close-modal">Cancel</button>
+        </div>`);
+      break;
+    }
+    case 'apply-starts': {
+      for (const r of pendingStarts || []) {
+        state.prog[r.id].weight = r.suggested;
+        state.prog[r.id].fails = 0;
+      }
+      pendingStarts = null;
+      persist(state);
+      closeModal();
       render();
       scheduleSync();
       break;
