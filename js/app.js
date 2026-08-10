@@ -84,7 +84,7 @@ function weekStrip() {
   const now = new Date();
   const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
   const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  const trained = new Set(state.history.map((h) => new Date(h.date).toDateString()));
+  const trained = new Set([...state.history, ...state.freeLog].map((h) => new Date(h.date).toDateString()));
   let out = '';
   for (let i = 0; i < 7; i++) {
     const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i);
@@ -233,6 +233,10 @@ function effectiveMuscles() {
     draft.overrides[id] !== undefined ? draft.overrides[id] : auto.has(id));
 }
 
+function todayISO() {
+  return new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+}
+
 function agoLabel(ts) {
   if (!ts) return '—';
   const days = Math.floor((Date.now() - ts) / 86400000);
@@ -273,7 +277,7 @@ function renderLog() {
     return `<div class="f-cell ${cls}"><span>${m.label}</span><span class="ago">${agoLabel(ts)}</span></div>`;
   }).join('');
 
-  const recent = [...state.freeLog].reverse().slice(0, 40);
+  const recent = [...state.freeLog].sort((a, b) => b.date - a.date).slice(0, 40);
   const groups = [];
   for (const e of recent) {
     const label = dayLabel(e.date);
@@ -307,6 +311,10 @@ function renderLog() {
         <input type="number" id="log-sets" placeholder="Sets" inputmode="numeric" min="0">
         <input type="number" id="log-reps" placeholder="Reps" inputmode="numeric" min="0">
         <input type="number" id="log-kg" placeholder="kg" inputmode="decimal" min="0" step="0.5">
+      </div>
+      <div class="log-date-row">
+        <span class="log-date-label">${icons.calendar} Date</span>
+        <input type="date" id="log-date" value="${todayISO()}" max="${todayISO()}">
       </div>
       <button class="btn btn-primary mt16" data-action="log-add">Log exercise ${icons.arrowRight}</button>
     </div>
@@ -631,7 +639,9 @@ document.addEventListener('click', (e) => {
         break;
       }
       const num = (id) => { const v = document.getElementById(id).value; return v ? Number(v) : null; };
-      addFreeEntry(state, { name, muscles, sets: num('log-sets'), reps: num('log-reps'), kg: num('log-kg') });
+      const dv = document.getElementById('log-date').value;
+      const date = dv && dv !== todayISO() ? new Date(`${dv}T12:00:00`).getTime() : Date.now();
+      addFreeEntry(state, { name, muscles, date, sets: num('log-sets'), reps: num('log-reps'), kg: num('log-kg') });
       draft.name = '';
       draft.overrides = {};
       render();

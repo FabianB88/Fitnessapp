@@ -578,6 +578,31 @@ h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; margin: 6px 0 3
 .log-nums { display: flex; gap: 10px; margin-top: 12px; }
 .log-nums input { text-align: center; padding: 12px 6px; }
 
+.log-date-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.log-date-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+.log-date-label svg { width: 16px; height: 16px; }
+.log-date-row input {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+  min-height: 46px;
+  -webkit-appearance: none;
+}
+
 .f-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
