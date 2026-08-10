@@ -3,14 +3,60 @@
 const LS_KEY = 'five5x5.v1';
 
 export const EXERCISES = {
-  'box-squat':      { name: 'Box Squat',      sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell. Sit back onto the box, brief pause, stand up.' },
-  'bench-press':    { name: 'Bench Press',    sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, flat bench.' },
-  'seated-row':     { name: 'Seated Row',     sets: 5, reps: 5,  start: 25, inc: 2.5, floor: 5,  note: 'Cable row, neutral grip.' },
-  'leg-curl':       { name: 'Leg Curl',       sets: 3, reps: 10, start: 20, inc: 2.5, floor: 5,  note: 'Machine, seated or lying.' },
-  'overhead-press': { name: 'Overhead Press', sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, standing.' },
-  'leg-press':      { name: 'Leg Press',      sets: 5, reps: 5,  start: 40, inc: 5,   floor: 20, note: 'Machine. Feet mid-platform.' },
-  'lat-pulldown':   { name: 'Lat Pulldown',   sets: 3, reps: 8,  start: 25, inc: 2.5, floor: 5,  note: 'Cable, pull to upper chest.' },
+  'box-squat':      { name: 'Box Squat',      sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell. Sit back onto the box, brief pause, stand up.', muscles: ['quads', 'glutes'] },
+  'bench-press':    { name: 'Bench Press',    sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, flat bench.', muscles: ['chest', 'triceps'] },
+  'seated-row':     { name: 'Seated Row',     sets: 5, reps: 5,  start: 25, inc: 2.5, floor: 5,  note: 'Cable row, neutral grip.', muscles: ['back', 'biceps'] },
+  'leg-curl':       { name: 'Leg Curl',       sets: 3, reps: 10, start: 20, inc: 2.5, floor: 5,  note: 'Machine, seated or lying.', muscles: ['hamstrings'] },
+  'overhead-press': { name: 'Overhead Press', sets: 5, reps: 5,  start: 20, inc: 2.5, floor: 20, note: 'Barbell, standing.', muscles: ['shoulders', 'triceps'] },
+  'leg-press':      { name: 'Leg Press',      sets: 5, reps: 5,  start: 40, inc: 5,   floor: 20, note: 'Machine. Feet mid-platform.', muscles: ['quads', 'glutes'] },
+  'lat-pulldown':   { name: 'Lat Pulldown',   sets: 3, reps: 8,  start: 25, inc: 2.5, floor: 5,  note: 'Cable, pull to upper chest.', muscles: ['back', 'biceps'] },
 };
+
+export const MUSCLES = [
+  { id: 'chest', label: 'Chest' },
+  { id: 'back', label: 'Back' },
+  { id: 'shoulders', label: 'Shoulders' },
+  { id: 'biceps', label: 'Biceps' },
+  { id: 'triceps', label: 'Triceps' },
+  { id: 'abs', label: 'Abs' },
+  { id: 'quads', label: 'Quads' },
+  { id: 'hamstrings', label: 'Hamstrings' },
+  { id: 'glutes', label: 'Glutes' },
+  { id: 'calves', label: 'Calves' },
+];
+
+// Keyword rules for recognizing which muscles an exercise trains.
+// First matching rules win per muscle; multi-word/specific patterns come first.
+const DETECT_RULES = [
+  [/leg extension/, ['quads']],
+  [/leg curl|nordic|hamstring/, ['hamstrings']],
+  [/leg press|squat|lunge|hack|step.?up|pistol/, ['quads', 'glutes']],
+  [/hip thrust|glute|bridge|abduct/, ['glutes']],
+  [/calf|calves/, ['calves']],
+  [/deadlift|rdl|romanian|good morning|back extension|hyperextension/, ['hamstrings', 'glutes', 'back']],
+  [/bench|chest press|push.?up|dip|close.?grip/, ['chest', 'triceps']],
+  [/fly|flye|pec deck|cable cross/, ['chest']],
+  [/pullover/, ['chest', 'back']],
+  [/row|pulldown|pull.?down|pull.?up|chin|lat /, ['back', 'biceps']],
+  [/face pull|rear delt|reverse fly/, ['shoulders', 'back']],
+  [/shoulder press|overhead press|ohp|military|arnold|lateral|side raise|front raise|shrug|delt/, ['shoulders']],
+  [/triceps|pushdown|push.?down|skull|kickback|french/, ['triceps']],
+  [/curl/, ['biceps']],
+  [/crunch|plank|sit.?up|leg raise|russian twist|ab |abs|core|hanging/, ['abs']],
+  [/press/, ['chest', 'triceps']],
+];
+
+export function detectMuscles(name) {
+  const n = ` ${name.toLowerCase().trim()} `;
+  const found = new Set();
+  for (const [re, muscles] of DETECT_RULES) {
+    if (re.test(n)) {
+      muscles.forEach((m) => found.add(m));
+      if (found.size) break;
+    }
+  }
+  return [...found];
+}
 
 export const WORKOUTS = {
   A: ['box-squat', 'bench-press', 'seated-row', 'leg-curl'],
@@ -26,6 +72,7 @@ export function defaultState() {
     version: 1,
     prog,
     history: [],
+    freeLog: [],            // [{ id, date, name, muscles: [], sets, reps, kg }]
     next: 'A',
     active: null,           // { type, startedAt, sets: { exId: [n|null, ...] } }
     onboardDismissed: false,
@@ -141,6 +188,30 @@ export function workoutsThisWeek(state) {
   const day = (now.getDay() + 6) % 7; // Monday = 0
   const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day).getTime();
   return state.history.filter((h) => h.date >= monday).length;
+}
+
+export function addFreeEntry(state, entry) {
+  state.freeLog.push({ id: Date.now(), date: Date.now(), ...entry });
+  persist(state);
+}
+
+export function deleteFreeEntry(state, id) {
+  state.freeLog = state.freeLog.filter((e) => e.id !== id);
+  persist(state);
+}
+
+// Last-trained timestamp per muscle, combining the free log and 5x5 history.
+export function muscleLastTrained(state) {
+  const last = {};
+  for (const e of state.freeLog) {
+    for (const m of e.muscles) last[m] = Math.max(last[m] || 0, e.date);
+  }
+  for (const h of state.history) {
+    for (const e of h.exercises) {
+      for (const m of EXERCISES[e.id]?.muscles || []) last[m] = Math.max(last[m] || 0, h.date);
+    }
+  }
+  return last;
 }
 
 export function exerciseSeries(state, exId) {

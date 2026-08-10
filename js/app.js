@@ -1,7 +1,8 @@
 import { icons } from './icons.js';
 import {
-  EXERCISES, WORKOUTS, loadState, persist, startWorkout, tapSet,
+  EXERCISES, WORKOUTS, MUSCLES, loadState, persist, startWorkout, tapSet,
   finishWorkout, discardWorkout, totalTonnage, workoutsThisWeek, exerciseSeries,
+  detectMuscles, addFreeEntry, deleteFreeEntry, muscleLastTrained,
 } from './store.js';
 import { getToken, setToken, fetchRemote, pushRemote } from './github.js';
 
@@ -55,14 +56,14 @@ function render() {
   if (state.active) { renderWorkout(); tabbar.classList.add('hidden'); }
   else {
     tabbar.classList.remove('hidden');
-    ({ home: renderHome, history: renderHistory, progress: renderProgress, settings: renderSettings })[tab]();
+    ({ home: renderHome, log: renderLog, history: renderHistory, progress: renderProgress, settings: renderSettings })[tab]();
   }
   renderTabs();
 }
 function renderIf(name) { if (tab === name && !state.active) render(); }
 
 function renderTabs() {
-  const meta = { home: ['Train', icons.barbell], history: ['History', icons.history], progress: ['Progress', icons.trendingUp], settings: ['Settings', icons.settings] };
+  const meta = { home: ['Train', icons.barbell], log: ['Log', icons.clipboard], history: ['History', icons.history], progress: ['Progress', icons.trendingUp], settings: ['Settings', icons.settings] };
   tabbar.querySelectorAll('.tab').forEach((btn) => {
     const t = btn.dataset.tab;
     btn.innerHTML = `${meta[t][1]}<span>${meta[t][0]}</span>`;
@@ -222,7 +223,100 @@ function updateRestClock() {
   }
 }
 
-// ---------- History ----------
+// ---------- Free log ----------
+
+const draft = { name: '', overrides: {} };
+
+function effectiveMuscles() {
+  const auto = new Set(detectMuscles(draft.name));
+  return MUSCLES.map((m) => m.id).filter((id) =>
+    draft.overrides[id] !== undefined ? draft.overrides[id] : auto.has(id));
+}
+
+function agoLabel(ts) {
+  if (!ts) return '—';
+  const days = Math.floor((Date.now() - ts) / 86400000);
+  if (days === 0) return 'today';
+  if (days === 1) return '1d ago';
+  return `${days}d ago`;
+}
+
+function dayLabel(ts) {
+  const d = new Date(ts), now = new Date();
+  const diff = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) -
+    new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  return fmtDate(ts);
+}
+
+function chipRow() {
+  const eff = new Set(effectiveMuscles());
+  return MUSCLES.map((m) =>
+    `<button class="m-chip ${eff.has(m.id) ? 'on' : ''}" data-muscle="${m.id}">${m.label}</button>`).join('');
+}
+
+function detectHint() {
+  const auto = detectMuscles(draft.name);
+  if (!draft.name.trim()) return 'Type an exercise — trained muscles get selected automatically.';
+  if (auto.length) return `Recognized: ${auto.map((id) => MUSCLES.find((m) => m.id === id).label).join(', ')}`;
+  return 'Not recognized — tap the muscles it trains.';
+}
+
+function renderLog() {
+  stopTick();
+  const last = muscleLastTrained(state);
+  const fCells = MUSCLES.map((m) => {
+    const ts = last[m.id];
+    const days = ts ? Math.floor((Date.now() - ts) / 86400000) : Infinity;
+    const cls = days <= 2 ? 'fresh' : days <= 6 ? 'warm' : '';
+    return `<div class="f-cell ${cls}"><span>${m.label}</span><span class="ago">${agoLabel(ts)}</span></div>`;
+  }).join('');
+
+  const recent = [...state.freeLog].reverse().slice(0, 40);
+  const groups = [];
+  for (const e of recent) {
+    const label = dayLabel(e.date);
+    if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
+    groups[groups.length - 1].items.push(e);
+  }
+  const entryCards = groups.map((g) => `
+    <div class="card entry-day">
+      <div class="h-title" style="margin-bottom:4px">${g.label}</div>
+      ${g.items.map((e) => `
+        <div class="entry-row">
+          <div class="info">
+            <div class="n">${esc(e.name)}</div>
+            <div class="tags">${e.muscles.map((id) => `<span class="tag">${MUSCLES.find((m) => m.id === id)?.label || id}</span>`).join('')}</div>
+          </div>
+          <span class="meta">${[e.sets && e.reps ? `${e.sets}×${e.reps}` : '', e.kg ? `${e.kg} kg` : ''].filter(Boolean).join(' · ')}</span>
+          <button class="del" data-del-entry="${e.id}">${icons.trash}</button>
+        </div>`).join('')}
+    </div>`).join('');
+
+  view.innerHTML = `
+    <div class="eyebrow">Freestyle</div>
+    <h1>Quick log</h1>
+    <div class="sub">Log any exercise — muscles are tracked automatically.</div>
+
+    <div class="card mt16">
+      <input type="text" id="log-name" placeholder="e.g. Biceps curl" value="${esc(draft.name)}" autocomplete="off" enterkeyhint="done">
+      <div class="detect-hint ${detectMuscles(draft.name).length ? 'found' : ''}" id="detect-hint">${detectHint()}</div>
+      <div class="muscle-grid" id="chip-row">${chipRow()}</div>
+      <div class="log-nums">
+        <input type="number" id="log-sets" placeholder="Sets" inputmode="numeric" min="0">
+        <input type="number" id="log-reps" placeholder="Reps" inputmode="numeric" min="0">
+        <input type="number" id="log-kg" placeholder="kg" inputmode="decimal" min="0" step="0.5">
+      </div>
+      <button class="btn btn-primary mt16" data-action="log-add">Log exercise ${icons.arrowRight}</button>
+    </div>
+
+    <div class="section-label">Muscles — last trained</div>
+    <div class="card"><div class="f-grid">${fCells}</div></div>
+
+    ${entryCards ? `<div class="section-label">Logged</div>${entryCards}` : `
+      <div class="empty mt16">${icons.clipboard}<div>Nothing logged yet.<br>Your entries land here per day.</div></div>`}`;
+}
 
 function renderHistory() {
   stopTick();
@@ -435,9 +529,38 @@ function showFinishSummary(results) {
 
 // ---------- Global click handling ----------
 
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'log-name') {
+    draft.name = e.target.value;
+    const hint = document.getElementById('detect-hint');
+    const chips = document.getElementById('chip-row');
+    if (hint) {
+      hint.textContent = detectHint();
+      hint.classList.toggle('found', detectMuscles(draft.name).length > 0);
+    }
+    if (chips) chips.innerHTML = chipRow();
+  }
+});
+
 document.addEventListener('click', (e) => {
-  const el = e.target.closest('[data-action], [data-ex], [data-ex-chip], [data-step]');
+  const el = e.target.closest('[data-action], [data-ex], [data-ex-chip], [data-step], [data-muscle], [data-del-entry]');
   if (!el) return;
+
+  if (el.dataset.muscle) {
+    const id = el.dataset.muscle;
+    const on = effectiveMuscles().includes(id);
+    draft.overrides[id] = !on;
+    const chips = document.getElementById('chip-row');
+    if (chips) chips.innerHTML = chipRow();
+    return;
+  }
+
+  if (el.dataset.delEntry) {
+    deleteFreeEntry(state, Number(el.dataset.delEntry));
+    render();
+    scheduleSync();
+    return;
+  }
 
   if (el.dataset.exChip) { progressEx = el.dataset.exChip; render(); return; }
 
@@ -496,6 +619,23 @@ document.addEventListener('click', (e) => {
       render();
       showFinishSummary(results);
       sync('push');
+      break;
+    }
+    case 'log-add': {
+      const name = document.getElementById('log-name').value.trim();
+      const muscles = effectiveMuscles();
+      if (!name) { document.getElementById('log-name').focus(); break; }
+      if (!muscles.length) {
+        const hint = document.getElementById('detect-hint');
+        if (hint) { hint.textContent = 'Select at least one muscle first.'; hint.classList.remove('found'); }
+        break;
+      }
+      const num = (id) => { const v = document.getElementById(id).value; return v ? Number(v) : null; };
+      addFreeEntry(state, { name, muscles, sets: num('log-sets'), reps: num('log-reps'), kg: num('log-kg') });
+      draft.name = '';
+      draft.overrides = {};
+      render();
+      scheduleSync();
       break;
     }
     case 'close-rest': rest = null; renderRest(); break;
